@@ -1,0 +1,19 @@
+name: "Oscar CI Test Runner"
+
+inputs:
+  config:
+    description: "Oscar CI config file"
+    required: true
+    default: "ci/config/standalone.yaml"
+
+
+runs:
+  using: "composite"
+  steps:
+  - name: Install Oscar
+    run: |
+      set -e
+      ci/run-tests.rb
+    env:
+      OSCAR_CI_CONFIG: ${{ inputs.config }}
+    shell: bash

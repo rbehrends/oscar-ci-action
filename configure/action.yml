@@ -1,0 +1,106 @@
+name: "Oscar CI Configuration Step"
+
+inputs:
+  julia:
+    description: "Julia version"
+    required: true
+    default: "1.4.2"
+  package:
+    description: "Julia package name."
+    required: true
+  ref:
+    description: "Git ref of the package to test."
+    required: true
+    default: ${{ github.ref }}
+  repository:
+    description: "Repository of the package to test."
+    required: true
+    default: ${{ github.repository }}
+  buildtype:
+    description: "Stable release or master branch."
+    required: true
+    default: "master"
+  config:
+    description: "Oscar CI config file"
+    required: true
+    default: "ci/config/standalone.yaml"
+  test:
+    description: "Which tests to run"
+    required: false
+    default: load
+
+runs:
+  using: "composite"
+  steps:
+  - name: Install CI
+    run: |
+      set -e
+      git clone https://github.com/oscar-system/oscar-ci ci
+    shell: bash
+  - name: Clone current package version
+    run: |
+      set -e
+      git clone https://github.com/${{ inputs.repository }} current-pkg
+      git -C current-pkg checkout ${{ inputs.ref }}
+    shell: bash
+  - name: Install APT packages
+    run: |
+      ruby <<EOF | sudo xargs apt-get install -y
+      require "yaml"
+      apt = YAML.load(File.read("ci/config/apt.yaml"))
+      puts(apt.join " ")
+      EOF
+    shell: bash
+  # This entry allows configuration of the CI via the switch-package,
+  # select-tests, and build-mode scripts.
+  #
+  # Use switch-package to set the url and branch for a package. This
+  # is if you want to override the default package location for a
+  # pull request
+  #
+  # Use select-tests to run only a subset of tests. The arguments
+  # should be one or more of:
+  # - init
+  # - packages
+  # - notebooks
+  #
+  # The init test alone verifies if all packages load and is very
+  # fast. The packages test set will run tests for all Oscar
+  # packages. The notebooks tests will also run notebook tests and
+  # can usually be omitted for GitHub Actions.
+  #
+  # The set-config script will change one ore more configuration
+  # variables. Most useful are the following:
+  #
+  #   buildtype: stable, develop, or master
+  #   jobs: number of tests to run in parallel.
+  #   julia: which version to use.
+  #     Fastest is "download:A.B.C", where A.B.C is the version
+  #     number. If a branch or tag is given, Julia will be built
+  #     from source.
+  #   workspace: path where Oscar will be built and tests will
+  #     be run.
+  #
+  # See config/standalone.yaml for all available settings.
+  - name: Configure Oscar CI
+    run: |
+      ci/switch-package ${{ inputs.package }} "$GITHUB_WORKSPACE/current-pkg"
+      case "${{ inputs.test }}" in
+      load)
+        ci/select-tests init
+        ;;
+      packages)
+        ci/select-tests init core
+        ;;
+      all)
+        ci/select-tests init core extra notebooks
+        ;;
+      *)
+        echo "invalid test descriptor '${{ inputs.test }}'"
+        exit 1
+      esac
+      ci/set-config buildtype ${{ inputs.buildtype }}
+      ci/set-config julia "download:${{ inputs.julia }}"
+    shell: bash
+    env:
+      OSCAR_CI_CONFIG: ${{ inputs.config }}
